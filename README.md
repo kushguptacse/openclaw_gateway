@@ -1,369 +1,160 @@
 # OpenClaw Gateway — Setup & WhatsApp Integration
 
-A local AI gateway powered by [OpenClaw](https://docs.openclaw.ai), running a **Qwen3** model served over an OpenAI-compatible endpoint. Supports WhatsApp as a chat channel with full agent inference.
+A lightweight local AI gateway powered by [OpenClaw](https://docs.openclaw.ai), running an OpenAI-compatible LLM endpoint with full WhatsApp channel integration and mobile device pairing.
 
 ---
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [Installation](#installation)
-3. [Environment Configuration](#environment-configuration)
-4. [OpenClaw Configuration](#openclaw-configuration)
-   - [LLM Provider (vLLM / OpenAI-compatible)](#llm-provider-vllm--openai-compatible)
-   - [WhatsApp Channel](#whatsapp-channel)
-5. [Running the Gateway](#running-the-gateway)
-6. [Running the WhatsApp Test](#running-the-whatsapp-test)
-   - [Python test (recommended)](#python-test-recommended)
-   - [Shell test](#shell-test)
-7. [Project Structure](#project-structure)
-8. [Troubleshooting](#troubleshooting)
+1. [Environment Configuration](#1-environment-configuration)
+2. [How to Setup Gateway](#2-how-to-setup-gateway)
+   - [Initial Onboarding](#initial-onboarding)
+   - [Running the Gateway](#running-the-gateway)
+   - [Mobile Pairing & Remote Access (ngrok)](#mobile-pairing--remote-access-ngrok)
+3. [How to Connect WhatsApp Channel](#3-how-to-connect-whatsapp-channel)
+   - [Linking WhatsApp Account](#linking-whatsapp-account)
+   - [Configuring Allowlist](#configuring-allowlist)
+   - [Verifying Channel Status](#verifying-channel-status)
+4. [How to Run Test Cases](#4-how-to-run-test-cases)
+   - [Running the Automated Tests](#running-the-automated-tests)
+   - [Test Suite Breakdown](#test-suite-breakdown)
 
 ---
 
-## Prerequisites
+## 1. Environment Configuration
 
-| Requirement | Minimum Version | Notes |
-|---|---|---|
-| **Node.js** | v22.19.0+ | Managed via nvm |
-| **nvm** | any | Used to install the right Node version |
-| **Python** | 3.10+ | For `test_whatsapp.py` and `config.py` |
-| **npm** | 10+ | Comes with nvm Node |
+All sensitive values (API keys, phone numbers) are loaded from a local `.env` file. 
 
----
+1. Copy the example environment template:
+   ```bash
+   cp .env.example .env
+   ```
+2. Configure your specific values in `.env`:
+   ```bash
+   # .env
+   VLLM_BASE_URL=https://your-endpoint.example.com/v1
+   VLLM_API_KEY=your_api_key_here
+   VLLM_MODEL_ID=your-model-id
 
-## Installation
-
-### 1 — Install nvm (if not already installed)
-
-```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
-source ~/.bashrc   # or ~/.zshrc
-```
-
-### 2 — Install Node.js ≥ 22.19
-
-```bash
-nvm install 22
-nvm use 22
-nvm alias default 22
-node --version     # should print v22.23.x or higher
-```
-
-### 3 — Install OpenClaw globally
-
-```bash
-npm install -g openclaw@latest
-openclaw --version
-```
+   WHATSAPP_TARGET=91XXXXXXXXXX       # Target number without leading +
+   WHATSAPP_TARGET_E164=+91XXXXXXXXXX # Target number with leading + (E.164 format)
+   ```
 
 ---
 
-## Environment Configuration
+## 2. How to Setup Gateway
 
-All sensitive values (API keys, phone numbers) are stored in a local `.env` file that is **never committed to version control**.
+### Initial Onboarding
 
-### Step 1 — Copy the template
-
-```bash
-cp .env.example .env
-```
-
-### Step 2 — Fill in your values
-
-```bash
-# .env
-VLLM_BASE_URL=https://your-endpoint.example.com/v1
-VLLM_API_KEY=your_api_key_here
-VLLM_MODEL_ID=your-model-id
-
-WHATSAPP_TARGET=91XXXXXXXXXX       # no leading +
-WHATSAPP_TARGET_E164=+91XXXXXXXXXX # with leading +
-```
-
-> **Note:** `AGENT_TIMEOUT` (default: `120` seconds) is optional and can be added to `.env` to override.
-
-### How config is loaded
-
-- **Python scripts** — `config.py` parses `.env` using stdlib only (no third-party deps) and exposes a `cfg` object.
-- **Shell script** — `test_whatsapp.sh` uses `source .env` to export variables.
-
----
-
-## OpenClaw Configuration
-
-### Initial Setup (Interactive)
-
-Run the guided onboarding wizard once:
+Run the interactive OpenClaw setup wizard once to generate your initial workspace, authentication tokens, and default configuration (`~/.openclaw/openclaw.json`):
 
 ```bash
 openclaw onboard
 ```
 
-This creates `~/.openclaw/openclaw.json` with gateway, auth, and workspace defaults.
+### Running the Gateway
+
+You can run the gateway service in the foreground or persist it as a daemon in the background:
+
+- **Foreground (Interactive / Development)**:
+  ```bash
+  openclaw gateway run --force
+  ```
+  *(Press `Ctrl+C` to stop)*
+
+- **Background (Persistent Daemon)**:
+  ```bash
+  nohup openclaw gateway run --force > /tmp/openclaw-gateway.log 2>&1 &
+  echo "Gateway PID: $!"
+  ```
+
+- **Check Gateway Health & Status**:
+  ```bash
+  openclaw health
+  openclaw status
+  ```
+
+### Mobile Pairing & Remote Access (ngrok)
+
+To bridge your local gateway with the OpenClaw mobile application over the internet :
+
+2. **Remote Access via ngrok Tunnel**:
+   If connecting over different networks (e.g., mobile data vs. Wi-Fi), expose your local port (`18789`) via ngrok and generate a secure WebSockets (`wss://`) pairing code:
+   ```bash
+   # Generate pairing QR / setup code using your ngrok WSS tunnel URL
+   openclaw qr --url wss://your-domain.ngrok-free.app
+   ```
+   Copy the generated **Setup Code** (or scan the QR code) directly into the OpenClaw mobile application.
+3. **Approve Device Pairing**:
+   Check pending device connection requests and approve them:
+   ```bash
+   openclaw devices list
+   openclaw devices approve <device-id>
+   ```
 
 ---
 
-### LLM Provider (vLLM / OpenAI-compatible)
+## 3. How to Connect WhatsApp Channel
 
-The gateway connects to any OpenAI-compatible `/v1` endpoint.
+### Linking WhatsApp Account
 
-#### Step 1 — Register the provider
+1. Start the interactive channel setup to link your WhatsApp account:
+   ```bash
+   openclaw channels add
+   ```
+2. Follow the on-screen prompts and scan the generated QR code using WhatsApp on your phone (**Linked Devices** → **Link a Device**).
 
-```bash
-openclaw config set models.providers.vllm "{
-  \"baseUrl\": \"$VLLM_BASE_URL\",
-  \"apiKey\": \"$VLLM_API_KEY\",
-  \"api\": \"openai-completions\",
-  \"timeoutSeconds\": 300,
-  \"models\": [{
-    \"id\": \"$VLLM_MODEL_ID\",
-    \"name\": \"My Model\",
-    \"reasoning\": true,
-    \"compat\": { \"thinkingFormat\": \"qwen-chat-template\" },
-    \"input\": [\"text\"],
-    \"cost\": { \"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0 },
-    \"contextWindow\": 32768,
-    \"maxTokens\": 8192
-  }]
-}" --strict-json --merge
-```
+### Configuring Allowlist
 
-> Source `.env` first so the shell variables are available:
-> ```bash
-> source .env && openclaw config set models.providers.vllm ...
-> ```
-
-#### Step 2 — Set as the default model
-
-```bash
-openclaw models set "vllm/$VLLM_MODEL_ID"
-```
-
-#### Step 3 — Verify
-
-```bash
-openclaw models list --provider vllm
-openclaw models status
-```
-
-#### Step 4 — Quick inference test
-
-```bash
-source .env
-VLLM_API_KEY=$VLLM_API_KEY openclaw infer model run \
-  --local \
-  --model "vllm/$VLLM_MODEL_ID" \
-  --thinking off \
-  --prompt "Say hello and confirm your model name."
-```
-
----
-
-### WhatsApp Channel
-
-WhatsApp is configured during `openclaw onboard`. The relevant section in `~/.openclaw/openclaw.json`:
-
-```json
-"channels": {
-  "whatsapp": {
-    "enabled": true,
-    "selfChatMode": true,
-    "dmPolicy": "allowlist",
-    "allowFrom": ["91XXXXXXXXXX"]
-  }
-}
-```
-
-#### Check WhatsApp status
-
-```bash
-openclaw channels status
-```
-
-Expected output:
-```
-- WhatsApp default: enabled, configured, linked, running, connected, health:healthy
-```
-
-#### Update the allowlisted number
+To ensure your agent only interacts with authorized phone numbers, update your WhatsApp allowlist using the target defined in your `.env`:
 
 ```bash
 source .env
 openclaw config set channels.whatsapp.allowFrom "[\"$WHATSAPP_TARGET\"]" --strict-json
 ```
 
----
+### Verifying Channel Status
 
-## Running the Gateway
-
-### Foreground (development / manual testing)
+Check that the WhatsApp service is running, connected, and healthy:
 
 ```bash
-openclaw gateway run --force
+openclaw channels status
 ```
 
-Press `Ctrl+C` to stop.
-
-### Background (persistent)
-
-```bash
-nohup openclaw gateway run --force > /tmp/openclaw-gateway.log 2>&1 &
-echo "Gateway PID: $!"
-```
-
-### Check health
-
-```bash
-openclaw health
-openclaw status
-```
-
-### Tail logs
-
-```bash
-tail -f /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log
+*Expected status output:*
+```text
+- WhatsApp default: enabled, configured, linked, running, connected, health:healthy
 ```
 
 ---
 
-## Running the WhatsApp Test
+## 4. How to Run Test Cases
 
-Both test scripts run **5 tests** end-to-end. They read all config from `.env` — no credentials are hardcoded.
+The project includes an automated end-to-end integration test suite that verifies gateway health, channel connectivity, LLM inference, and message delivery.
 
-| # | Test | What it checks |
-|---|---|---|
-| 1 | **Gateway Health** | Gateway is reachable (auto-starts if needed) |
-| 2 | **WhatsApp Channel** | Channel is connected and healthy |
-| 3 | **Model Inference** | Model responds to a one-shot prompt |
-| 4 | **Direct Message Send** | Sends a plain text message (no AI) to WhatsApp |
-| 5 | **E2E Agent → WhatsApp** | Full round-trip: model generates a reply, delivered to WhatsApp |
+### Running the Automated Tests
 
----
-
-### Python test (recommended)
+run the Python test suite, which uses standard library components and automatically discovers your Node/OpenClaw environment:
 
 ```bash
 python3 test_whatsapp.py
 ```
 
-- **No extra packages required** — uses stdlib only.
-- Auto-discovers the correct nvm Node binary (semver-aware scan of `~/.nvm/versions/node/`).
-- Reads config from `.env` via `config.py`.
-
-**Example output:**
-
-```
-══════════════════════════════════════
-  OpenClaw WhatsApp Integration Test
-══════════════════════════════════════
-[07:02:48] Model   : vllm/qwen3-6-35b-a3b
-[07:02:48] Target  : +91XXXXXXXXXX
-
-✅ PASS — Gateway is reachable
-✅ PASS — WhatsApp channel is connected and healthy
-✅ PASS — Model responded correctly
-✅ PASS — Direct message delivered — Message ID: 3EB0...
-✅ PASS — Agent reply delivered to WhatsApp — Sent message 3EB0...
-
-  Tests run  : 5   Passed: 5   Warnings: 0   Failed: 0
-
-All tests passed! ✅
-```
-
----
-
-### Shell test
-
+*Alternatively, you can run the Bash test script:*
 ```bash
 chmod +x test_whatsapp.sh
 bash test_whatsapp.sh
 ```
 
-- Reads config via `source .env`.
-- Requires bash 4+ and nvm in `~/.nvm`.
+### Test Suite Breakdown
 
----
+The automated test suite executes **5 sequential verification checks**:
 
-## Project Structure
+| # | Test Name | Description |
+|---|---|---|
+| **1** | **Gateway Health** | Verifies that the local OpenClaw gateway is reachable and auto-starts if offline. |
+| **2** | **WhatsApp Channel** | Confirms that the WhatsApp channel session is active, authenticated, and healthy. |
+| **3** | **Model Inference** | Tests communication with the LLM provider (`vLLM` / OpenAI-compatible endpoint) via a one-shot prompt. |
+| **4** | **Direct Message Send** | Validates raw message delivery by sending a plain text ping directly to the target WhatsApp number. |
+| **5** | **E2E Agent → WhatsApp** | Performs a full round-trip verification where the agent generates an AI response and delivers it to WhatsApp. |
 
-```
-openclaw_gateway/
-├── .env                 ← Your local secrets (gitignored, never commit)
-├── .env.example         ← Template — copy to .env and fill in values
-├── .gitignore           ← Ignores .env and Python cache
-├── config.py            ← Loads .env, exposes cfg object (Python)
-├── test_whatsapp.py     ← Python integration test (recommended)
-├── test_whatsapp.sh     ← Bash integration test
-└── README.md            ← This file
-```
-
-**Key OpenClaw config files** (managed by openclaw, outside this repo):
-
-```
-~/.openclaw/
-├── openclaw.json              ← Main config (gateway, channels, models, plugins)
-├── openclaw.json.bak          ← Auto-backup before each config change
-├── agents/main/agent/
-│   ├── models.json            ← Provider/model definitions + API keys
-│   └── openclaw-agent.sqlite  ← Agent session + auth store
-├── credentials/whatsapp/      ← WhatsApp session credentials
-└── workspace/                 ← Agent workspace files
-```
-
----
-
-## Troubleshooting
-
-### `openclaw: Node.js v22.19+ is required`
-
-Your shell's `node` is an older nvm version:
-
-```bash
-nvm use 22
-nvm alias default 22
-```
-
-The Python test handles this automatically by scanning `~/.nvm/versions/node/` for a compatible binary — no manual `nvm use` needed.
-
----
-
-### `CLI transcript compaction failed: Already compacted`
-
-This is a **cosmetic bug** in openclaw on new sessions with nothing to compact. It does **not** affect message delivery — WhatsApp messages are sent successfully before this error appears.
-
----
-
-### Gateway won't start (port conflict)
-
-```bash
-openclaw gateway run --force   # --force kills the existing process on port 18789
-```
-
----
-
-### WhatsApp channel shows `disconnected`
-
-The WhatsApp Web session may have expired. Re-pair:
-
-```bash
-openclaw channels add    # Guided re-pairing with QR code
-```
-
----
-
-### Model returns no response / timeout
-
-1. Verify the endpoint is reachable:
-   ```bash
-   source .env
-   curl -s -o /dev/null -w "%{http_code}" \
-     "$VLLM_BASE_URL/models" \
-     -H "Authorization: Bearer $VLLM_API_KEY"
-   # Should return 200
-   ```
-2. Increase `timeoutSeconds` in the vLLM provider config.
-3. Tail gateway logs for errors:
-   ```bash
-   tail -f /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log | grep -i "error\|fail\|warn"
-   ```
